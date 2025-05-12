@@ -1,0 +1,733 @@
+<!DOCTYPE html>
+<html lang="sr">
+
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Map with Dynamic Data and Consequences</title>
+
+    <!-- Link to Bootstrap CSS -->
+    <link href="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.7.1/dist/leaflet.css" />
+    <script src="https://unpkg.com/leaflet@1.7.1/dist/leaflet.js"></script>
+    <!-- Marker Cluster Library -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster/dist/MarkerCluster.css" />
+    <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster/dist/MarkerCluster.Default.css" />
+    <script src="https://unpkg.com/leaflet.markercluster/dist/leaflet.markercluster.js"></script>
+    <!-- Heatmap Library - alternativni izvor -->
+    <script src="https://unpkg.com/leaflet.heat/dist/leaflet-heat.js"></script>
+
+    <style>
+        #map {
+            width: 100%;
+            height: 100vh;
+        }
+
+        .sidebar {
+            margin-top: 20px;
+        }
+
+        .filter-btn {
+            margin: 10px;
+        }
+
+        .filter-container {
+            padding: 15px;
+            max-height: 100vh;
+            overflow-y: auto;
+        }
+
+        .naslov {
+            text-align: center;
+            font-size: 24px;
+            font-weight: bold;
+            color: #333;
+            margin: 20px auto;
+            padding: 10px 20px;
+            background-color: #f8f9fa;
+            border-radius: 10px;
+            box-shadow: 2px 2px 10px rgba(0, 0, 0, 0.1);
+            display: block;
+            width: fit-content;
+        }
+
+        .legend {
+            background: white;
+            padding: 10px;
+            border-radius: 5px;
+            line-height: 18px;
+            color: #555;
+        }
+
+        .legend i {
+            width: 18px;
+            height: 18px;
+            float: left;
+            margin-right: 8px;
+            opacity: 0.7;
+        }
+
+        .mode-toggle {
+            margin-top: 15px;
+            margin-bottom: 15px;
+        }
+
+        .severity-count {
+            background-color: #f8f9fa;
+            border-radius: 5px;
+            padding: 10px;
+            margin-top: 15px;
+        }
+
+        #progressContainer {
+            display: none;
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            width: 300px;
+            z-index: 1000;
+            background-color: white;
+            padding: 20px;
+            border-radius: 10px;
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
+            text-align: center;
+        }
+
+        #progressBar {
+            height: 20px;
+            margin-top: 10px;
+            margin-bottom: 10px;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="container-fluid">
+        <h4 class="naslov">Geografska analiza posledica i vremenskih faktora</h4>
+        <!-- Sidebar for filters -->
+        <div class="row sidebar">
+            <div class="col-md-3 filter-container" style="font-size: 12px;">
+                <div class="mode-toggle">
+                    <div class="form-check form-check-inline">
+                        <input class="form-check-input" type="radio" name="viewMode" id="clusterMode" value="cluster"
+                            checked>
+                        <label class="form-check-label" for="clusterMode">Klaster prikaz</label>
+                    </div>
+                    <div class="form-check form-check-inline">
+                        <input class="form-check-input" type="radio" name="viewMode" id="heatmapMode" value="heatmap">
+                        <label class="form-check-label" for="heatmapMode">Toplotna mapa</label>
+                    </div>
+                </div>
+
+                <div class="severity-count" id="accidentStats">
+                    <h6 style="font-size: 14px;">Statistika nesreća</h6>
+                    <div id="statsContent">
+                        <p>Primeni filtere za prikaz statistike</p>
+                    </div>
+                </div>
+
+                <h5 style="font-size: 16px; margin-top: 15px;">Posledice</h5>
+                <hr>
+                <form id="consequenceFilter">
+                    <div class="form-check">
+                        <input class="form-check-input" type="checkbox" value="1" id="consequence1">
+                        <label class="form-check-label" for="consequence1">Poginuo na licu mesta</label>
+                    </div>
+                    <div class="form-check">
+                        <input class="form-check-input" type="checkbox" value="2" id="consequence2">
+                        <label class="form-check-label" for="consequence2">Preminuo za vreme prevoza</label>
+                    </div>
+                    <div class="form-check">
+                        <input class="form-check-input" type="checkbox" value="3" id="consequence3">
+                        <label class="form-check-label" for="consequence3">Naknadno preminulo</label>
+                    </div>
+                    <div class="form-check">
+                        <input class="form-check-input" type="checkbox" value="4" id="consequence4">
+                        <label class="form-check-label" for="consequence4">Teške telesne povrede</label>
+                    </div>
+                    <div class="form-check">
+                        <input class="form-check-input" type="checkbox" value="5" id="consequence5">
+                        <label class="form-check-label" for="consequence5">Lake telesne povrede</label>
+                    </div>
+                    <div class="form-check">
+                        <input class="form-check-input" type="checkbox" value="6" id="consequence6">
+                        <label class="form-check-label" for="consequence6">Nema povreda</label>
+                    </div>
+                </form>
+
+                <h5 class="pt-2" style="font-size: 16px;">Period dana</h5>
+                <hr>
+                <form id="timeOfDayFilter">
+                    <div class="form-check">
+                        <input class="form-check-input" type="checkbox" value="1" id="timeOfDay1">
+                        <label class="form-check-label" for="timeOfDay1">Noć</label>
+                    </div>
+                    <div class="form-check">
+                        <input class="form-check-input" type="checkbox" value="2" id="timeOfDay2">
+                        <label class="form-check-label" for="timeOfDay2">Jutro</label>
+                    </div>
+                    <div class="form-check">
+                        <input class="form-check-input" type="checkbox" value="3" id="timeOfDay3">
+                        <label class="form-check-label" for="timeOfDay3">Dan</label>
+                    </div>
+                    <div class="form-check">
+                        <input class="form-check-input" type="checkbox" value="4" id="timeOfDay4">
+                        <label class="form-check-label" for="timeOfDay4">Veče</label>
+                    </div>
+                </form>
+
+                <h5 class="pt-2" style="font-size: 16px;">Godina</h5>
+                <hr>
+                <form id="yearFilter">
+                    <div class="form-check">
+                        <input class="form-check-input" type="checkbox" value="2015" id="year2015">
+                        <label class="form-check-label" for="year2015">2015</label>
+                    </div>
+                    <div class="form-check">
+                        <input class="form-check-input" type="checkbox" value="2016" id="year2016">
+                        <label class="form-check-label" for="year2016">2016</label>
+                    </div>
+                    <div class="form-check">
+                        <input class="form-check-input" type="checkbox" value="2017" id="year2017">
+                        <label class="form-check-label" for="year2017">2017</label>
+                    </div>
+                    <div class="form-check">
+                        <input class="form-check-input" type="checkbox" value="2018" id="year2018">
+                        <label class="form-check-label" for="year2018">2018</label>
+                    </div>
+                    <div class="form-check">
+                        <input class="form-check-input" type="checkbox" value="2019" id="year2019">
+                        <label class="form-check-label" for="year2019">2019</label>
+                    </div>
+                    <div class="form-check">
+                        <input class="form-check-input" type="checkbox" value="2020" id="year2020">
+                        <label class="form-check-label" for="year2020">2020</label>
+                    </div>
+                </form>
+
+                <h5 class="pt-2" style="font-size: 16px;">Vremenske prilike</h5>
+                <hr>
+                <form id="weatherFilter">
+                    <div class="form-check">
+                        <input class="form-check-input" type="checkbox" value="1" id="weather1">
+                        <label class="form-check-label" for="weather1">Vreme je bilo vedro</label>
+                    </div>
+                    <div class="form-check">
+                        <input class="form-check-input" type="checkbox" value="2" id="weather2">
+                        <label class="form-check-label" for="weather2">Vreme je bilo oblačno</label>
+                    </div>
+                    <div class="form-check">
+                        <input class="form-check-input" type="checkbox" value="3" id="weather3">
+                        <label class="form-check-label" for="weather3">Padala je kiša</label>
+                    </div>
+                    <div class="form-check">
+                        <input class="form-check-input" type="checkbox" value="4" id="weather4">
+                        <label class="form-check-label" for="weather4">Padao je grad</label>
+                    </div>
+                    <div class="form-check">
+                        <input class="form-check-input" type="checkbox" value="5" id="weather5">
+                        <label class="form-check-label" for="weather5">Padao je sneg</label>
+                    </div>
+                    <div class="form-check">
+                        <input class="form-check-input" type="checkbox" value="6" id="weather6">
+                        <label class="form-check-label" for="weather6">Bila je izmaglica</label>
+                    </div>
+                    <div class="form-check">
+                        <input class="form-check-input" type="checkbox" value="7" id="weather7">
+                        <label class="form-check-label" for="weather7">Bila je magla</label>
+                    </div>
+                    <div class="form-check">
+                        <input class="form-check-input" type="checkbox" value="8" id="weather8">
+                        <label class="form-check-label" for="weather8">Duvao je jak vetar</label>
+                    </div>
+                    <div class="form-check">
+                        <input class="form-check-input" type="checkbox" value="40" id="weather40">
+                        <label class="form-check-label" for="weather40">Padala je susnežica</label>
+                    </div>
+                </form>
+
+                <button class="btn btn-primary mt-3 mb-4" onclick="filterData()">Prikaži</button>
+            </div>
+            <div class="col-md-9">
+                <div id="map"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Progress Bar Container -->
+    <div id="progressContainer">
+        <h5>Učitavanje podataka</h5>
+        <div class="progress">
+            <div id="progressBar" class="progress-bar progress-bar-striped progress-bar-animated" role="progressbar"
+                aria-valuenow="0" aria-valuemin="0" aria-valuemax="100"></div>
+        </div>
+        <div id="progressStatus">Inicijalizacija...</div>
+    </div>
+
+    <script>
+        // Map of consequences descriptions
+        const consequences = {
+            1: "Poginuo na licu mesta",
+            2: "Preminuo za vreme prevoza do zdr. ustanove",
+            3: "Naknadno preminulo lice u roku od 30 dana od posledica SN",
+            4: "Teške telesne povrede",
+            5: "Lake telesne povrede",
+            6: "Nema povreda"
+        };
+
+        // Array of time of day periods
+        const timeOfDayPeriods = ["Noć", "Jutro", "Dan", "Veče"];
+
+        // Map of weather conditions
+        const weatherConditions = {
+            1: "Vreme je bilo vedro",
+            2: "Vreme je bilo oblačno, bez padavina",
+            3: "Padala je kiša",
+            4: "Padao je grad",
+            5: "Padao je sneg",
+            6: "Bila je izmaglica",
+            7: "Bila je magla",
+            8: "Duvao je jak vetar",
+            40: "Padala je susnežica"
+        };
+
+        // Initialize the map
+        const map = L.map('map').setView([44.0165, 21.0059], 7);
+
+        // Add base tile layers
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+        }).addTo(map);
+
+        // Add marker cluster group
+        let markers = L.markerClusterGroup();
+
+        // Heatmap layer
+        let heatLayer = null;
+
+        // Store all data for filtering
+        let allData = [];
+
+        // Progress tracking variables
+        let totalFeatures = 0;
+        let processedFeatures = 0;
+
+        // Show progress bar
+        function showProgressBar() {
+            document.getElementById('progressContainer').style.display = 'block';
+        }
+
+        // Hide progress bar
+        function hideProgressBar() {
+            document.getElementById('progressContainer').style.display = 'none';
+        }
+
+        // Update progress bar
+        function updateProgressBar(percent, statusText) {
+            const progressBar = document.getElementById('progressBar');
+            progressBar.style.width = percent + '%';
+            progressBar.setAttribute('aria-valuenow', percent);
+
+            if (statusText) {
+                document.getElementById('progressStatus').textContent = statusText;
+            }
+        }
+
+        // Add legend to the map
+        const legend = L.control({ position: 'bottomright' });
+        legend.onAdd = function (map) {
+            const div = L.DomUtil.create('div', 'info legend');
+            const severities = [
+                { label: 'Smrtni ishod', color: 'red' },
+                { label: 'Povrede', color: 'blue' },
+                { label: 'Bez povreda', color: 'green' }
+            ];
+
+            let legendHtml = '<h6>Legenda</h6>';
+
+            for (let i = 0; i < severities.length; i++) {
+                legendHtml +=
+                    '<i style="background:' + severities[i].color + '"></i> ' +
+                    severities[i].label + '<br>';
+            }
+
+            div.innerHTML = legendHtml;
+            return div;
+        };
+        legend.addTo(map);
+
+        // Function to load GeoJSON data
+        function loadGeoJSONData() {
+            showProgressBar();
+            updateProgressBar(10, "Preuzimanje podataka...");
+
+            fetch('features.geojson')
+                .then(response => {
+                    updateProgressBar(30, "Parsiranje podataka...");
+                    return response.json();
+                })
+                .then(data => {
+                    updateProgressBar(60, "Obrađivanje podataka...");
+
+                    // Check if data needs to be parsed from string
+                    if (typeof data === 'string') {
+                        try {
+                            data = JSON.parse(data);
+                        } catch (e) {
+                            console.error("Error parsing GeoJSON data:", e);
+                            hideProgressBar();
+                        }
+                    }
+
+                    // Store all data for later filtering
+                    allData = data.features;
+                    totalFeatures = allData.length;
+
+                    updateProgressBar(80, `Učitano ${totalFeatures} tačaka podataka...`);
+
+                    // Initialize the map with all data
+                    setTimeout(() => {
+                        updateProgressBar(90, "Prikazivanje mape...");
+                        updateMap(allData);
+
+                        setTimeout(() => {
+                            updateProgressBar(100, "Završeno!");
+                            setTimeout(hideProgressBar, 500);
+                        }, 300);
+                    }, 300);
+                })
+                .catch(error => {
+                    console.error("Error loading GeoJSON data:", error);
+                    hideProgressBar();
+                    // Dodajem poruku o grešci za korisnike
+                    alert("Greška pri učitavanju podataka. Proverite da li je 'features.geojson' datoteka dostupna.");
+                });
+        }
+
+        // Function to determine marker color based on consequence severity
+        function getMarkerColor(consequence) {
+            if (consequence <= 3) {
+                return "red";  // Fatal accidents
+            } else if (consequence <= 5) {
+                return "blue"; // Injuries
+            } else {
+                return "green"; // No injuries
+            }
+        }
+
+        // Function to get intensity for heatmap based on consequence severity
+        function getHeatmapIntensity(consequence) {
+            if (consequence <= 3) {
+                return 0.5;  // Higher intensity for fatal accidents
+            } else if (consequence <= 5) {
+                return 0.3;  // Medium intensity for injuries
+            } else {
+                return 0.1;  // Lower intensity for no injuries
+            }
+        }
+
+        // Function to update the statistics panel
+        function updateStats(features) {
+            const stats = {
+                total: features.length,
+                fatal: 0,
+                injuries: 0,
+                noInjuries: 0,
+                byTimeOfDay: { "Noć": 0, "Jutro": 0, "Dan": 0, "Veče": 0 }
+            };
+
+            features.forEach(feature => {
+                const consequence = feature.properties.POSLEDICA;
+                const timeOfDay = feature.properties.PERIOD_DANA;
+
+                // Count by severity
+                if (consequence <= 3) {
+                    stats.fatal++;
+                } else if (consequence <= 5) {
+                    stats.injuries++;
+                } else {
+                    stats.noInjuries++;
+                }
+
+                // Count by time of day
+                if (timeOfDay && stats.byTimeOfDay.hasOwnProperty(timeOfDay)) {
+                    stats.byTimeOfDay[timeOfDay]++;
+                }
+            });
+
+            // Update the stats display
+            let statsHtml = `
+                <p><strong>Ukupno nesreća:</strong> ${stats.total}</p>
+                <p><strong>Smrtni ishod:</strong> ${stats.fatal} (${Math.round(stats.fatal / stats.total * 100 || 0)}%)</p>
+                <p><strong>Povrede:</strong> ${stats.injuries} (${Math.round(stats.injuries / stats.total * 100 || 0)}%)</p>
+                <p><strong>Bez povreda:</strong> ${stats.noInjuries} (${Math.round(stats.noInjuries / stats.total * 100 || 0)}%)</p>
+                <hr>
+                <p><strong>Period dana:</strong></p>
+            `;
+
+            // Display statistics for each time of day
+            timeOfDayPeriods.forEach(period => {
+                const count = stats.byTimeOfDay[period] || 0;
+                const percent = Math.round(count / stats.total * 100 || 0);
+                statsHtml += `<p>${period}: ${count} (${percent}%)</p>`;
+            });
+
+            document.getElementById('statsContent').innerHTML = statsHtml;
+        }
+
+        // Function to update the map with filtered data
+        function updateMap(features) {
+            showProgressBar();
+            updateProgressBar(10, "Priprema podataka za prikaz...");
+
+            // Clear existing markers and heatmap
+            markers.clearLayers();
+            if (heatLayer) {
+                map.removeLayer(heatLayer);
+            }
+
+            // Update statistics
+            updateStats(features);
+            updateProgressBar(30, "Ažuriranje statistike...");
+
+            // Heatmap data array
+            let heatData = [];
+
+            // Process each feature with batched processing for better performance
+            const batchSize = 500;
+            const batches = Math.ceil(features.length / batchSize);
+
+            processedFeatures = 0;
+
+            function processBatch(batchIndex) {
+                updateProgressBar(
+                    30 + Math.round((batchIndex / batches) * 50),
+                    `Obrađivanje podataka: ${Math.min(processedFeatures + batchSize, features.length)} od ${features.length}`
+                );
+
+                const start = batchIndex * batchSize;
+                const end = Math.min(start + batchSize, features.length);
+
+                for (let i = start; i < end; i++) {
+                    const feature = features[i];
+                    const coords = feature.geometry.coordinates;
+                    const lat = coords[1];
+                    const lng = coords[0];
+                    const consequence = feature.properties.POSLEDICA;
+                    const year = feature.properties.GODINA;
+                    const weather = feature.properties.VREM_PRILIKE;
+                    const timeOfDay = feature.properties.PERIOD_DANA;
+
+                    // Determine marker color based on consequence
+                    const color = getMarkerColor(consequence);
+
+                    // Create a circle marker for each accident
+                    const marker = L.circleMarker([lat, lng], {
+                        color: color,
+                        fillColor: color,
+                        fillOpacity: 0.7,
+                        radius: 5,
+                        weight: 1
+                    })
+                        .bindPopup(`
+                        <b>Posledica:</b> ${consequences[consequence] || "Nepoznato"}<br>
+                        <b>Period dana:</b> ${timeOfDay || "Nepoznato"}<br>
+                        <b>Godina:</b> ${year}<br>
+                        <b>Vremenske prilike:</b> ${weatherConditions[weather] || 'Nepoznato'}
+                    `);
+
+                    // Add the marker to the cluster
+                    markers.addLayer(marker);
+
+                    // Prepare heatmap data with intensity based on severity
+                    const intensity = getHeatmapIntensity(consequence);
+                    heatData.push([lat, lng, intensity]);
+                }
+
+                processedFeatures += (end - start);
+
+                if (batchIndex < batches - 1) {
+                    // Process next batch after a short delay to allow UI to update
+                    setTimeout(() => processBatch(batchIndex + 1), 0);
+                } else {
+                    // All batches processed, finish rendering the map
+                    finishMapRendering(heatData);
+                }
+            }
+
+            // Start processing the first batch
+            if (features.length > 0) {
+                processBatch(0);
+            } else {
+                finishMapRendering([]);
+            }
+        }
+
+        // Finalize map rendering after data processing
+        function finishMapRendering(heatData) {
+            updateProgressBar(85, "Primenjivanje filtera na mapu...");
+
+            // Get current view mode
+            const viewMode = document.querySelector('input[name="viewMode"]:checked').value;
+
+            if (viewMode === 'cluster') {
+                // Add markers to map
+                map.addLayer(markers);
+            } else {
+                // Check if Leaflet Heat library is loaded
+                if (typeof L.heatLayer === 'function') {
+                    // Add the heatmap layer if we have data
+                    if (heatData.length > 0) {
+                        const gradient = {
+                            0.1: 'blue',
+                            0.3: 'lime',
+                            0.5: 'yellow',
+                            0.7: 'orange',
+                            1.0: 'red'
+                        };
+
+                        heatLayer = L.heatLayer(heatData, {
+                            radius: 25,
+                            blur: 15,
+                            maxZoom: 17,
+                            gradient: gradient
+                        }).addTo(map);
+                    }
+                } else {
+                    console.error("L.heatLayer nije dostupan. Proverite da li je leaflet-heat.js pravilno učitan.");
+                    alert("Nije moguće prikazati toplotnu mapu. Leaflet Heat biblioteka nije učitana pravilno.");
+                    // Revert to cluster view if heatmap isn't available
+                    document.getElementById('clusterMode').checked = true;
+                    map.addLayer(markers);
+                }
+            }
+
+            updateProgressBar(100, "Završeno!");
+            setTimeout(hideProgressBar, 500);
+        }
+
+        // Function to filter data based on selected criteria
+        function filterData() {
+            showProgressBar();
+            updateProgressBar(10, "Primenjivanje filtera...");
+
+            const selectedConsequences = [];
+            const selectedYears = [];
+            const selectedWeather = [];
+            const selectedTimeOfDay = [];
+
+            // Get selected consequences
+            document.querySelectorAll('#consequenceFilter input[type="checkbox"]:checked').forEach((checkbox) => {
+                selectedConsequences.push(parseInt(checkbox.value));
+            });
+
+            // Get selected times of day
+            document.querySelectorAll('#timeOfDayFilter input[type="checkbox"]:checked').forEach((checkbox) => {
+                // Map checkbox values (1,2,3,4) to actual period names
+                switch (checkbox.value) {
+                    case "1": selectedTimeOfDay.push("Noć"); break;
+                    case "2": selectedTimeOfDay.push("Jutro"); break;
+                    case "3": selectedTimeOfDay.push("Dan"); break;
+                    case "4": selectedTimeOfDay.push("Veče"); break;
+                }
+            });
+
+            // Get selected years
+            document.querySelectorAll('#yearFilter input[type="checkbox"]:checked').forEach((checkbox) => {
+                selectedYears.push(parseInt(checkbox.value));
+            });
+
+            // Get selected weather
+            document.querySelectorAll('#weatherFilter input[type="checkbox"]:checked').forEach((checkbox) => {
+                selectedWeather.push(parseInt(checkbox.value));
+            });
+
+            updateProgressBar(30, "Filtriranje podataka...");
+
+            // Filter the data
+            let filteredData = allData;
+
+            // Apply filters only if something is selected
+            if (selectedConsequences.length > 0) {
+                filteredData = filteredData.filter(feature =>
+                    selectedConsequences.includes(feature.properties.POSLEDICA)
+                );
+            }
+
+            if (selectedTimeOfDay.length > 0) {
+                filteredData = filteredData.filter(feature =>
+                    selectedTimeOfDay.includes(feature.properties.PERIOD_DANA)
+                );
+            }
+
+            if (selectedYears.length > 0) {
+                filteredData = filteredData.filter(feature =>
+                    selectedYears.includes(feature.properties.GODINA)
+                );
+            }
+
+            if (selectedWeather.length > 0) {
+                filteredData = filteredData.filter(feature =>
+                    selectedWeather.includes(feature.properties.VREM_PRILIKE)
+                );
+            }
+
+            // Update map with filtered data
+            updateMap(filteredData);
+        }
+
+        // Add event listener for view mode change
+        document.querySelectorAll('input[name="viewMode"]').forEach(radio => {
+            radio.addEventListener('change', function () {
+                // Re-apply the current filters to update the view
+                filterData();
+            });
+        });
+
+        // Function to check if libraries are loaded
+        function checkLibraries() {
+            if (typeof L === 'undefined') {
+                alert("Leaflet biblioteka nije učitana. Proverite internet konekciju.");
+                return false;
+            }
+
+            if (typeof L.markerClusterGroup !== 'function') {
+                alert("Marker Cluster biblioteka nije učitana. Proverite internet konekciju.");
+                return false;
+            }
+
+            return true;
+        }
+
+        // Init function that runs when page loads
+        function init() {
+            if (checkLibraries()) {
+                // Load initial data
+                loadGeoJSONData();
+
+                // Add event listeners for selecting all filters in a category
+                document.querySelectorAll('h5').forEach(heading => {
+                    heading.addEventListener('click', function (e) {
+                        // Find the corresponding form element
+                        const form = this.nextElementSibling.nextElementSibling;
+                        if (form && form.tagName === 'FORM') {
+                            const checkboxes = form.querySelectorAll('input[type="checkbox"]');
+                            const allChecked = Array.from(checkboxes).every(cb => cb.checked);
+
+                            // Toggle state of all checkboxes
+                            checkboxes.forEach(cb => {
+                                cb.checked = !allChecked;
+                            });
+                        }
+                    });
+                });
+            }
+        }
+
+        // Start initialization when DOM is loaded
+        document.addEventListener('DOMContentLoaded', init);
+    </script>
+</body>
+
+</html>
